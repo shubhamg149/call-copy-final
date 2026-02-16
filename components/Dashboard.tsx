@@ -724,10 +724,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                       { role: 'assistant', content: 'Thinking...' }
                     ]);
                     try {
-                      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-                      const response = await ai.models.generateContent({
-                        model: 'gemini-2.5-flash',
-                        contents: `You are a Sales Mentor for company responders.
+                      const response = await fetch("/api/gemini", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          model: 'gemini-2.5-flash',
+                          contents: `You are a Sales Mentor for company responders.
                                     Rules:
                                     Be polite, answer general question also, give very concise, to-the-point answers.
                                     No explanations, no storytelling untill asked.
@@ -740,12 +742,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                                     Clear, Direct, Action-oriented, polite
                                     Task:
                                     Answer the responder’s question with only what is necessary to act immediately.. User: ${userMessage}`,
+                          config: undefined,
+                        }),
                       });
+                      const data = await response.json();
+                      const text = data.text || 'Error.';
                       setChatHistory(prev => {
                         const updated = [...prev];
                         updated[updated.length - 1] = {
                           role: 'assistant',
-                          content: response.text || 'Error.'
+                          content: text
                         };
                         return updated;
                       });
