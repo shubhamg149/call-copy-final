@@ -67,7 +67,9 @@ export const convertPdfToKnowledgeJson = async (pdfBase64: string): Promise<Comp
   }
 
   const result = await response.json();
-  const data = JSON.parse(result.text || "{}");
+  if (result.error) throw new Error(result.details || result.error);
+  const textToParse = typeof result.text === "string" ? result.text : "{}";
+  const data = JSON.parse(textToParse || "{}");
   return {
     ...data,
     rules: data.rules || [],
@@ -213,13 +215,16 @@ export const analyzeAudioCall = async (
         }
 
         const result = await response.json();
-        return { text: result.text };
+        if (result.error) throw new Error(result.details || result.error);
+        const text = typeof result.text === "string" ? result.text : "{}";
+        return { text };
       });
     } catch (apiErr: any) {
       throw new Error(`Speech analysis failed. ${apiErr.message}`);
     }
 
-    const audioMetadata = JSON.parse(audioAnalysisResponse.text || "{}");
+    const audioText = typeof audioAnalysisResponse.text === "string" ? audioAnalysisResponse.text : "{}";
+    const audioMetadata = JSON.parse(audioText || "{}");
     if (!audioMetadata.rawTranscript) throw new Error("No conversation detected.");
 
     if (onStatusUpdate) onStatusUpdate("Auditing against knowledge base...");
@@ -433,7 +438,16 @@ export const analyzeAudioCall = async (
       }
     });*/
 
-    const parsed = JSON.parse(reasoningResponse.text || "{}");
+    if (!reasoningResponse.ok) {
+      const errBody = await reasoningResponse.text();
+      throw new Error(`Gemini API error: ${reasoningResponse.status} - ${errBody}`);
+    }
+    const result = await reasoningResponse.json();
+    if (result.error) {
+      throw new Error(result.details || result.error);
+    }
+    const textToParse = typeof result.text === "string" ? result.text : "{}";
+    const parsed = JSON.parse(textToParse || "{}");
 
     const buyingSignals = parsed.buyingSignals || 0;
     const dealOutcome = parsed.dealOutcome || "";

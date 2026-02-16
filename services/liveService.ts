@@ -139,7 +139,8 @@ export const startLiveCopilot = async (config: LiveSessionConfig) => {
       }
 
       const result = await response.json();
-      const parsed = JSON.parse(result.text || "{}");
+      const textToParse = typeof result.text === "string" ? result.text : "{}";
+      const parsed = JSON.parse(textToParse || "{}");
 
       if (parsed.transcript) {
         config.onTranscript(parsed.transcript, false);

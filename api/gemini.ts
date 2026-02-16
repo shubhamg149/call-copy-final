@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from "vercel/node";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI } from "@google/genai";
 
 export default async function handler(
@@ -17,7 +17,7 @@ export default async function handler(
     }
 
     const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
+      apiKey: process.env.GEMINI_API_KEY||"AIzaSyDbO5jQXqA3MBRAOfRnXBrRva4sIlmVq2M",
     });
 
     const response = await ai.models.generateContent({
@@ -27,8 +27,7 @@ export default async function handler(
     });
 
     return res.status(200).json({
-      text: response.text,
-      raw: response,
+      text: typeof response.text === "string" ? response.text : JSON.stringify(response.text ?? ""),
     });
   } catch (error: any) {
     return res.status(500).json({
