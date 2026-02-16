@@ -1,0 +1,118 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CallSense | Fit Mantra</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --fit-accent: #20b384; /* Emerald Green for health/wellness */
+        --fit-navy: #0F172A;
+        --fit-ghost: #e4fff6;
+      }
+      body {
+        font-family: 'Inter',Fira Sans, sans-serif;
+        background-image: url("https://drive.google.com/file/d/1zn30llLoJYTW3PpENoYDBKNnc_1nOiCv/view?usp=sharing");
+      }
+      h1, h2, h3, h4, h5, h6 {
+        font-family: 'Poppins', sans-serif;
+      }
+      .fit-gradient {
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+      }
+      .fit-button-gradient {
+        background: linear-gradient(135deg, #20b384 0%, #0a716c 100%);
+      }
+      .fit-shadow {
+        box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.4);
+      }
+      .fit-accent-shadow {
+        box-shadow: 0 10px 25px -5px rgba(32, 179, 132, 0.3);
+      }
+      /* Custom scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1; 
+        border-radius: 10px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #20b384; 
+      }
+
+      /* Markdown specific styling for chat */
+      .chat-markdown p { margin-bottom: 0.5rem; }
+      .chat-markdown p:last-child { margin-bottom: 0; }
+      .chat-markdown ul, .chat-markdown ol { margin-bottom: 0.5rem; padding-left: 1.25rem; }
+      .chat-markdown li { margin-bottom: 0.25rem; list-style-type: disc; }
+      .chat-markdown strong { font-weight: 800; color: inherit; }
+
+      /* Print Optimizations */
+      @media print {
+        @page {
+          size: A4;
+          margin: 1cm;
+        }
+        body {
+          background-color: white !important;
+          print-color-adjust: exact;
+          -webkit-print-color-adjust: exact;
+        }
+        nav, .print-hidden, #root > div > nav, button, .sticky {
+          display: none !important;
+        }
+        #root > div > main {
+          display: none !important;
+        }
+        .fixed {
+          position: static !important;
+          background: transparent !important;
+          backdrop-filter: none !important;
+          padding: 0 !important;
+          overflow: visible !important;
+        }
+        #printable-report {
+          width: 100% !important;
+          max-width: none !important;
+          box-shadow: none !important;
+          border: none !important;
+          border-radius: 0 !important;
+          margin: 0 !important;
+        }
+        .fit-gradient {
+          background: #0F172A !important;
+          color: white !important;
+        }
+        .fit-button-gradient {
+          background: #20b384 !important;
+        }
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.37.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "recharts": "https://esm.sh/recharts@^3.6.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "marked": "https://esm.sh/marked@12.0.0",
+    "firebase/": "https://esm.sh/firebase@^12.8.0/",
+    "react-type-animation": "https://esm.sh/react-type-animation@^3.2.0"
+  }
+}
+</script>
+</head>
+  <body class="text-slate-900">
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
+  </body>
+</html>

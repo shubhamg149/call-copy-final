@@ -1,0 +1,91 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- BASIC HELPERS ---
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper to get the current user's document data
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Role-based helpers
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == 'ADMIN';
+    }
+
+    function isResponder() {
+      return isAuthenticated() && getUserData().role == 'RESPONDER';
+    }
+
+    function isVerified() {
+      // Admins are considered verified; Responders must have 'VERIFIED' status
+      let data = getUserData();
+      return data.role == 'ADMIN' || data.status == 'VERIFIED';
+    }
+
+    // --- COLLECTION RULES ---
+
+    match /users/{userId} {
+      // Users can always read and update their own document
+      allow get: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Admins can list all users and update any profile (for verification)
+      allow list: if isAdmin();
+      allow update: if isAdmin();
+      
+      // Initial creation allowed for the user themselves
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Only Admins can delete
+      allow delete: if isAdmin();
+    }
+
+    match /settings/companyKnowledge {
+      // Both Admins and Verified Responders need to read the knowledge base for call auditing
+      allow read: if isAuthenticated() && (isAdmin() || (isResponder() && isVerified()));
+      // Only Admins can modify the company knowledge base
+      allow write: if isAdmin();
+    }
+
+    match /knowledgeBaseFiles/{fileId} {
+      // Missing rules for knowledge base files collection
+      allow read: if isAuthenticated() && isVerified();
+      allow write: if isAdmin();
+    }
+
+    match /responderFeedback/{feedbackId} {
+      // Admins have full control
+      allow read, write: if isAdmin();
+      // Verified Responders can only read feedback addressed to them
+      allow read: if isResponder() && isVerified() && resource.data.responderId == request.auth.uid;
+    }
+
+    match /callReports/{reportId} {
+      // Admins can manage all call reports (including deletion)
+      allow read, write: if isAdmin();
+      
+      // Verified Responders rules
+      // Note: For list queries, the client query must include the agentId filter
+      allow read: if isResponder() && isVerified() && resource.data.agentId == request.auth.uid;
+      allow create: if isResponder() && isVerified() && request.resource.data.agentId == request.auth.uid;
+      
+      // allows soft-deleting their own reports only if conversionScore < 10
+      allow update: if isResponder() && isVerified() && 
+                        resource.data.agentId == request.auth.uid &&
+                        resource.data.conversionScore < 10 &&
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedByResponder', 'updatedAt']);
+
+      // allows hard-deleting their own reports only if conversionScore < 10
+      allow delete: if isResponder() && isVerified() && 
+                        resource.data.agentId == request.auth.uid &&
+                        resource.data.conversionScore < 10;
+    }
+  }
+}

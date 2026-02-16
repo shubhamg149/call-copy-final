@@ -1,0 +1,7 @@
+{
+  "name": "CallSense",
+  "description": "An AI-powered call analysis platform that helps convert leads into clients by analyzing sentiment, tone, and product accuracy in sales calls.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
