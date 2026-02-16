@@ -1,8 +1,4 @@
-import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
-
 export const prepareLiveContext = async (pdfBase64List: string[] = [], instructions?: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
   const parts: any[] = [
     { text: `
       Your task is to create a concise "Sales Battlecard" from the provided documents and instructions.
@@ -33,12 +29,23 @@ export const prepareLiveContext = async (pdfBase64List: string[] = [], instructi
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: { parts },
-      config: { temperature: 0 }
+    const response = await fetch("/api/gemini", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gemini-3-flash-preview",
+        contents: { parts },
+        config: { temperature: 0 }
+      }),
     });
-    return response.text || "Context extraction returned empty.";
+
+    if (!response.ok) {
+      console.error("Context Prep Error:", response.statusText);
+      return "Error preparing context. Use general knowledge.";
+    }
+
+    const data = await response.json();
+    return data.text || "Context extraction returned empty.";
   } catch (err) {
     console.error("Context Prep Error:", err);
     return "Error preparing context. Use general knowledge.";
@@ -53,68 +60,6 @@ export interface LiveSessionConfig {
 }
 
 export const startLiveCopilot = async (config: LiveSessionConfig) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  let currentOutputTranscription = '';
-
-  const sessionPromise = ai.live.connect({
-    model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-    callbacks: {
-      onopen: () => console.log("Live Copilot Connected"),
-      onmessage: async (message: LiveServerMessage) => {
-        // Handle Model Output Transcription (The "Suggestion")
-        if (message.serverContent?.outputTranscription) {
-          currentOutputTranscription += message.serverContent.outputTranscription.text;
-        }
-        
-        // Handle User Input Transcription (Confirmation of listening)
-        if (message.serverContent?.inputTranscription) {
-           if (message.serverContent.inputTranscription.text) {
-               config.onTranscript(message.serverContent.inputTranscription.text, false);
-           }
-        }
-
-        // When the model is done "speaking" (turnComplete), we treat the accumulated text as the full suggestion
-        if (message.serverContent?.turnComplete) {
-          if (currentOutputTranscription.trim()) {
-            config.onSuggestion(currentOutputTranscription.trim());
-            currentOutputTranscription = '';
-          }
-        }
-      },
-      onerror: (e) => {
-        console.error("Session Error:", e);
-        config.onError("Connection interrupted. Please restart.");
-      },
-      onclose: () => console.log("Live Copilot Closed"),
-    },
-    config: {
-      responseModalities: [Modality.AUDIO], // Audio modality allows the model to "speak" its advice, which we transcribe.
-      systemInstruction: `
-        You are a Real-Time Sales Copilot.
-        You are listening to a sales call.
-        Your output will NOT be heard by the client. It is whispered to the Agent.
-        
-        YOUR GOAL: Help the Agent convert the lead.
-        
-        INSTRUCTIONS:
-        1. Listen for questions about pricing, features, or objections.
-        2. IMMEDIATELY provide the answer or a counter-tactic based on the BATTLECARD below.
-        3. Keep responses SHORT (under 2 sentences).
-        4. If the agent is doing well, stay silent. Only intervene to help.
-        
-        BATTLECARD DATA:
-        ${config.digestedContext}
-      `,
-      // FIX: Removed invalid 'model' property. Passing empty objects enables transcription.
-      inputAudioTranscription: {}, 
-      outputAudioTranscription: {},
-      speechConfig: {
-        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
-      }
-    }
-  });
-
   // Audio Setup
   // We use a high-quality capture but depend on the context for sample rate to avoid mismatches
   const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -135,6 +80,79 @@ export const startLiveCopilot = async (config: LiveSessionConfig) => {
   const source = audioContext.createMediaStreamSource(stream);
   const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
+  // Buffer PCM data so we can periodically send chunks to the backend
+  const pcmBuffer: Int16Array[] = [];
+  let lastSendTime = 0;
+  const SEND_INTERVAL_MS = 5000; // send approximately every 5 seconds
+
+  const sendChunkToBackend = async (base64Data: string, sampleRate: number) => {
+    try {
+      const response = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gemini-2.5-flash",
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: `audio/pcm;rate=${sampleRate}`,
+                  data: base64Data,
+                },
+              },
+              {
+                text: `
+                  You are a Real-Time Sales Copilot.
+                  You are listening to a short segment of a sales call.
+                  Your output will NOT be heard by the client. It is whispered to the Agent.
+
+                  YOUR GOAL: Help the Agent convert the lead.
+
+                  INSTRUCTIONS:
+                  1. Listen for questions about pricing, features, or objections.
+                  2. IMMEDIATELY provide the answer or a counter-tactic based on the BATTLECARD below.
+                  3. Keep responses SHORT (under 2 sentences).
+                  4. If the agent is doing well, stay silent. Only intervene to help.
+
+                  BATTLECARD DATA:
+                  ${config.digestedContext}
+
+                  Return JSON only, with the following shape:
+                  {
+                    "transcript": "Short transcription of this segment in English/Hinglish/Gujlish",
+                    "suggestion": "Your brief coaching suggestion for the agent, or an empty string if none needed"
+                  }
+                `,
+              },
+            ],
+          },
+          config: {
+            responseMimeType: "application/json",
+            temperature: 0.3,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Live Copilot backend error:", response.statusText);
+        return;
+      }
+
+      const result = await response.json();
+      const parsed = JSON.parse(result.text || "{}");
+
+      if (parsed.transcript) {
+        config.onTranscript(parsed.transcript, false);
+      }
+      if (parsed.suggestion) {
+        config.onSuggestion(parsed.suggestion);
+      }
+    } catch (e: any) {
+      console.error("Live Copilot backend error:", e);
+      config.onError("Error contacting live copilot backend.");
+    }
+  };
+
   processor.onaudioprocess = (e) => {
     const inputData = e.inputBuffer.getChannelData(0);
     
@@ -144,28 +162,39 @@ export const startLiveCopilot = async (config: LiveSessionConfig) => {
       const s = Math.max(-1, Math.min(1, inputData[i]));
       pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
-    
-    // Convert to Base64
-    let binary = '';
-    const bytes = new Uint8Array(pcmData.buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    const base64Data = btoa(binary);
 
-    // Send to Gemini
-    // We must pass the correct sample rate of the data we are sending
-    const currentRate = audioContext.sampleRate;
-    
-    sessionPromise.then(session => {
-      session.sendRealtimeInput({ 
-        media: {
-          mimeType: `audio/pcm;rate=${currentRate}`,
-          data: base64Data
-        }
-      });
-    });
+    // Buffer this chunk
+    pcmBuffer.push(pcmData);
+
+    const now = Date.now();
+    if (now - lastSendTime >= SEND_INTERVAL_MS && pcmBuffer.length > 0) {
+      lastSendTime = now;
+
+      // Concatenate buffered PCM into a single Int16Array
+      const totalLength = pcmBuffer.reduce((sum, arr) => sum + arr.length, 0);
+      const merged = new Int16Array(totalLength);
+      let offset = 0;
+      for (const arr of pcmBuffer) {
+        merged.set(arr, offset);
+        offset += arr.length;
+      }
+
+      // Clear buffer
+      pcmBuffer.length = 0;
+
+      // Convert to Base64
+      let binary = "";
+      const bytes = new Uint8Array(merged.buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64Data = btoa(binary);
+
+      // We must pass the correct sample rate of the data we are sending
+      const currentRate = audioContext.sampleRate;
+      void sendChunkToBackend(base64Data, currentRate);
+    }
   };
 
   source.connect(processor);
@@ -176,11 +205,7 @@ export const startLiveCopilot = async (config: LiveSessionConfig) => {
       source.disconnect();
       processor.disconnect();
       stream.getTracks().forEach(track => track.stop());
-      
-      // Close session
-      const session = await sessionPromise;
-      session.close();
-      
+
       await audioContext.close();
     }
   };
