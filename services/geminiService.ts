@@ -139,7 +139,6 @@ export const analyzeAudioCall = async (
   onStatusUpdate?: (status: string) => void
 ): Promise<CallAnalysis> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const base64Audio = await fileToBase64(audioFile);
 
     if (onStatusUpdate) onStatusUpdate("Detecting speech & behavioral cues...");
