@@ -346,7 +346,8 @@ export const analyzeAudioCall = async (
       }),
     });
     
-    /*let reasoningResponse = await ai.models.generateContent({
+    /* //Direct api
+    let reasoningResponse = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: { parts: [{ text: auditPrompt }] },
       config: { 
