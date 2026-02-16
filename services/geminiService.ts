@@ -1,5 +1,4 @@
-
-import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { CallAnalysis, CompanyKnowledge, LeadType, RelationshipType } from "../types";
 
 const fileToBase64 = (file: File | Blob): Promise<string> => {
@@ -34,14 +33,15 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
  * Converts a PDF file into a structured JSON knowledge base.
  */
 export const convertPdfToKnowledgeJson = async (pdfBase64: string): Promise<CompanyKnowledge> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: {
-      parts: [
-        { inlineData: { mimeType: "application/pdf", data: pdfBase64 } },
-        {
-          text: `Extract all company knowledge from this PDF (company overview, programs, therapies, products, plans, pricing, rules, SOPs, guidelines, FAQs, objections, compliance).
+  const response = await fetch("/api/gemini", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "gemini-2.5-flash",
+      contents: {
+        parts: [
+          { inlineData: { mimeType: "application/pdf", data: pdfBase64 } },
+          { text: `Extract all company knowledge from this PDF (company overview, programs, therapies, products, plans, pricing, rules, SOPs, guidelines, FAQs, objections, compliance).
                 Convert everything into well-structured, hierarchical JSON.
                 Rules:
                 Capture every detail present.
@@ -54,12 +54,20 @@ export const convertPdfToKnowledgeJson = async (pdfBase64: string): Promise<Comp
                 Task:
                 Create a complete JSON knowledge base for automated sales call comparison.
         ` }
-      ]
-    },
-    config: { responseMimeType: "application/json" }
+        ]
+      },
+      config: { responseMimeType: "application/json" }
+    }),
   });
 
-  const data = JSON.parse(response.text || "{}");
+  if (!response.ok) {
+    const error: any = new Error(`Gemini API error: ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  const result = await response.json();
+  const data = JSON.parse(result.text || "{}");
   return {
     ...data,
     rules: data.rules || [],
@@ -149,15 +157,19 @@ export const analyzeAudioCall = async (
       mimeType = 'audio/mpeg';
     }
 
-    let audioAnalysisResponse: GenerateContentResponse;
+    let audioAnalysisResponse: { text?: string };
     try {
-      audioAnalysisResponse = await withRetry(() => ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: {
-          parts: [
-            { inlineData: { mimeType: mimeType, data: base64Audio } },
-            {
-              text: `Analyze this sales call between Responder: ${agentName} and a Client (Hindi, English, or Gujarati).
+      
+      audioAnalysisResponse = await withRetry(async () => {
+        const response = await fetch("/api/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gemini-2.5-flash",
+            contents: {
+              parts: [
+                { inlineData: { mimeType: mimeType, data: base64Audio } },
+                { text: `Analyze this sales call between Responder: ${agentName} and a Client (Hindi, English, or Gujarati).
               
               GOAL: 
               1.Extract each conversation of both parties, don't miss any.
@@ -166,33 +178,44 @@ export const analyzeAudioCall = async (
               4. If found, capture that name for the 'clientName' field.
               
               Return JSON matching the schema.` }
-          ]
-        },
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.1,
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              clientName: { type: Type.STRING, description: "Extracted client name or 'Client'" },
-              rawTranscript: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    speaker: { type: Type.STRING, description: '"Responder" or "Client"' },
-                    timestamp: { type: Type.STRING },
-                    text: { type: Type.STRING },
-                    review: { type: Type.STRING }
-                  },
-                  required: ['speaker', 'timestamp', 'text']
-                }
-              }
+              ]
             },
-            required: ['rawTranscript']
-          }
+            config: { 
+              responseMimeType: "application/json", 
+              temperature: 0.1,
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  clientName: { type: Type.STRING, description: "Extracted client name or 'Client'" },
+                  rawTranscript: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        speaker: { type: Type.STRING, description: '"Responder" or "Client"' },
+                        timestamp: { type: Type.STRING },
+                        text: { type: Type.STRING },
+                        review: { type: Type.STRING }
+                      },
+                      required: ['speaker', 'timestamp', 'text']
+                    }
+                  }
+                },
+                required: ['rawTranscript']
+              }
+            }
+          }),
+        });
+
+        if (!response.ok) {
+          const error: any = new Error(`Gemini API error: ${response.status}`);
+          error.status = response.status;
+          throw error;
         }
-      }));
+
+        const result = await response.json();
+        return { text: result.text };
+      });
     } catch (apiErr: any) {
       throw new Error(`Speech analysis failed. ${apiErr.message}`);
     }
@@ -233,7 +256,98 @@ export const analyzeAudioCall = async (
       Return a detailed report following the strict response schema.
     `;
 
-    let reasoningResponse = await ai.models.generateContent({
+
+
+    const reasoningResponse = await fetch("/api/gemini", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gemini-2.5-flash",
+        contents: { parts: [{ text: auditPrompt }] },
+        config: { responseMimeType: "application/json", 
+        temperature: 0.1,
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            clientName: { type: Type.STRING },
+            buyingSignals: { type: Type.INTEGER, description: "Count of client buying signals observed" },
+            dealOutcome: { type: Type.STRING, description: "One of: HardRejection, SoftRejection, Neutral, StrongInterest" },
+            summary: { type: Type.STRING, description: "Blunt, expert assessment of call quality" },
+            sentiment: {
+              type: Type.OBJECT,
+              properties: {
+                client: { type: Type.STRING, description: "Positive: Receptive, appreciative, or ready to proceed. Neutral: Seeking information, clarifying details, or showing no clear bias. Negative: Declining service, expressing price objections (e.g., 'too expensive' or 'out of budget'), or showing skepticism." },
+                responder: { type: Type.STRING, description: "Professional, Passive, or Aggressive" }
+              },
+              required: ["client", "responder"]
+            },
+            metrics: {
+              type: Type.OBJECT,
+              properties: {
+                activeListeningScore: { type: Type.INTEGER, description: "Score int(0-100): how well agent identified client pain points and goals" },
+                productKnowledgeScore: { type: Type.INTEGER, description: "Score int(0-100): accuracy of plan, therapy, and pricing explanation" },
+                empathyScore: { type: Type.INTEGER, description: "Score int(0-100): rapport building and emotional understanding" },
+                persuasionScore: { type: Type.INTEGER, description: "Score int(0-100): agent confidence and strength in justifying value" },
+                politenessScore: { type: Type.INTEGER, description: "Score int(0-100): courtesy and professional etiquette" },
+                clarityScore: { type: Type.INTEGER, description: "Score int(0-100): communication clarity and lack of jargon" }
+              },
+              required: ["activeListeningScore", "productKnowledgeScore", "empathyScore", "persuasionScore"]
+            },
+            compliance: {
+              type: Type.OBJECT,
+              properties: {
+                dmVerified: { type: Type.BOOLEAN },
+                needDiscovery: { type: Type.BOOLEAN },
+                priceAdherence: { type: Type.BOOLEAN },
+                objectionHandled: { type: Type.BOOLEAN },
+                hardCloseAttempted: { type: Type.BOOLEAN }
+              },
+              required: ["dmVerified", "needDiscovery", "priceAdherence", "objectionHandled", "hardCloseAttempted"]
+            },
+            transcript: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  speaker: { type: Type.STRING },
+                  text: { type: Type.STRING, description: "reproduce the full dialogue text"},
+                  timestamp: { type: Type.STRING },
+                  sentiment: { type: Type.STRING,  description: "only one word sentiment"},
+                  review: { type: Type.STRING }
+                },
+                required: ["speaker", "text", "timestamp", "sentiment", "review"]
+              }
+            },
+            feedback: {
+              type: Type.OBJECT,
+              properties: {
+                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+                missedOpportunities: { type: Type.ARRAY, items: { type: Type.STRING } },
+                actionableSteps: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      timestamp: { type: Type.STRING },
+                      issue: { type: Type.STRING },
+                      suggestion: { type: Type.STRING },
+                      category: { type: Type.STRING },
+                      priority: { type: Type.STRING }
+                    }
+                  }
+                }
+              },
+              required: ["strengths", "weaknesses", "actionableSteps"]
+            }
+          },
+          required: ["buyingSignals", "dealOutcome", "summary", "sentiment", "metrics", "compliance", "feedback"]
+        }
+      }
+      }),
+    });
+    
+    /*let reasoningResponse = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: { parts: [{ text: auditPrompt }] },
       config: { 
@@ -317,7 +431,7 @@ export const analyzeAudioCall = async (
           required: ["buyingSignals", "dealOutcome", "summary", "sentiment", "metrics", "compliance", "feedback"]
         }
       }
-    });
+    });*/
 
     const parsed = JSON.parse(reasoningResponse.text || "{}");
 
